@@ -1,4 +1,4 @@
-type Middleware = Box<dyn Fn(&Item) -> Option<String>>;
+type Middleware = Box<dyn Fn(&Item) -> Option<&str>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Wrapper {
@@ -88,7 +88,7 @@ impl<'a> Formatter<'a> {
                         for middleware in &self.middlewares {
                             let processed = middleware(&item);
                             if processed.is_some() {
-                                return processed.unwrap();
+                                return processed.unwrap().to_owned();
                             }
                         }
 
@@ -372,10 +372,10 @@ mod tests {
     #[test]
     fn format_string() {
         let formatter = Formatter::new("{{greeting}}, {name}! by {hidden}")
-            .add_middleware(Box::new(|item: &Item| -> Option<String> {
+            .add_middleware(Box::new(|item: &Item| -> Option<&str> {
                 if let Wrapper::Curly = item.wrapper {
                     if let "name" = item.text.as_ref() {
-                        Some("world".to_owned())
+                        Some("world")
                     } else {
                         None
                     }
@@ -386,7 +386,7 @@ mod tests {
             .add_middleware(Box::new(|item| {
                 if let Wrapper::DoubleCurly = item.wrapper {
                     if let "greeting" = item.text.as_ref() {
-                        Some("Hello".to_owned())
+                        Some("Hello")
                     } else {
                         None
                     }
