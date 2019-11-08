@@ -1,5 +1,6 @@
 type Middleware = Box<dyn Fn(&Item) -> Option<&str>>;
 
+/// Wrappers over the text
 #[derive(Clone, Debug, PartialEq)]
 pub enum Wrapper {
     DoubleCurly,
@@ -9,23 +10,20 @@ pub enum Wrapper {
     CurlyPercent,
 }
 
+/// Wrapped text
 #[derive(Debug, PartialEq)]
 pub struct Item {
     pub wrapper: Wrapper,
     pub text: String,
 }
 
+/// The formatter
 pub struct Formatter<'a> {
     text: &'a str,
     middlewares: Vec<Middleware>,
 }
 
-impl<'a> std::fmt::Debug for Formatter<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.write_fmt(format_args!("Fomatter {{ text = \"{}\" }}", self.text))
-    }
-}
-
+/// Plain text or wrapped text
 #[derive(Debug, PartialEq)]
 pub enum Element {
     Text(String),
@@ -33,6 +31,7 @@ pub enum Element {
 }
 
 impl Wrapper {
+    /// get the prefix of the wrapper
     fn get_prefix(&self) -> &'static str {
         match self {
             Wrapper::DoubleCurly => "{{",
@@ -43,6 +42,7 @@ impl Wrapper {
         }
     }
 
+    /// get the suffix of the wrapper
     fn get_suffix(&self) -> &'static str {
         match self {
             Wrapper::DoubleCurly => "}}",
@@ -52,20 +52,22 @@ impl Wrapper {
         }
     }
 
+    /// Get all wrappers
     fn values() -> [Self; 5] {
+        // Order count to avoid conflicts.
+        // Wrappers with more characters should have a higher priority.
         [
-            // Two chars
             Wrapper::DoubleCurly,
-            Wrapper::DollarCurly,
             Wrapper::CurlyPercent,
             Wrapper::CurlyHash,
-            // One char
+            Wrapper::DollarCurly,
             Wrapper::Curly,
         ]
     }
 }
 
 impl<'a> Formatter<'a> {
+    /// Initialize a new formatter
     pub fn new(text: &'a str) -> Formatter<'a> {
         Formatter {
             text,
@@ -73,11 +75,13 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// Adds a middleware to the formatter
     pub fn add_middleware(mut self, middleware: Middleware) -> Self {
         self.middlewares.push(middleware);
         self
     }
 
+    /// Parse text with given middlewares
     pub fn parse(&self) -> String {
         self.into_elements()
             .iter()
@@ -106,6 +110,7 @@ impl<'a> Formatter<'a> {
     }
 
     // TODO: This function is rather messed, it works, but is pretty hard to maintain.
+    /// Convert text into a sequence of elements
     pub fn into_elements(&self) -> Vec<Element> {
         if self.text.len() < 2 {
             return vec![Element::Text(self.text.to_owned())];
