@@ -91,7 +91,13 @@ impl<'a> Formatter<'a> {
                                 return processed.unwrap();
                             }
                         }
-                        item.text.to_owned()
+
+                        format!(
+                            "{}{}{}",
+                            item.wrapper.get_prefix(),
+                            item.text,
+                            item.wrapper.get_suffix()
+                        )
                     }
                 }
             })
@@ -100,7 +106,7 @@ impl<'a> Formatter<'a> {
     }
 
     // TODO: This function is rather messed, it works, but is pretty hard to maintain.
-    fn into_elements(&self) -> Vec<Element> {
+    pub fn into_elements(&self) -> Vec<Element> {
         if self.text.len() < 2 {
             return vec![Element::Text(self.text.to_owned())];
         }
@@ -199,8 +205,10 @@ impl<'a> Formatter<'a> {
 
         // Last char
         if context.is_none() {
-            if current_texts.len() > 0 {
-                current_texts.push(prev_char.unwrap());
+            if current_texts.len() != 0 || prev_char.is_some() {
+                if let Some(pc) = prev_char {
+                    current_texts.push(pc);
+                }
                 elements.push(Element::Text(current_texts));
             };
         } else {
@@ -232,7 +240,7 @@ mod tests {
 
     #[test]
     fn parse_curly() {
-        let formatter = Formatter::new("Hello, {name}");
+        let formatter = Formatter::new("Hello, {name}!");
         assert_eq!(
             formatter.into_elements(),
             vec![
@@ -240,7 +248,8 @@ mod tests {
                 Element::Wrapped(Item {
                     wrapper: Wrapper::Curly,
                     text: "name".to_owned()
-                })
+                }),
+                Element::Text("!".to_owned())
             ]
         );
     }
@@ -358,5 +367,33 @@ mod tests {
             formatter.into_elements(),
             vec![Element::Text("${todo..".to_owned())]
         );
+    }
+
+    #[test]
+    fn format_string() {
+        let formatter = Formatter::new("{{greeting}}, {name}! by {hidden}")
+            .add_middleware(Box::new(|item: &Item| -> Option<String> {
+                if let Wrapper::Curly = item.wrapper {
+                    if let "name" = item.text.as_ref() {
+                        Some("world".to_owned())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }))
+            .add_middleware(Box::new(|item| {
+                if let Wrapper::DoubleCurly = item.wrapper {
+                    if let "greeting" = item.text.as_ref() {
+                        Some("Hello".to_owned())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }));
+        assert_eq!(formatter.parse(), "Hello, world! by {hidden}");
     }
 }
