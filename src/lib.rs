@@ -131,7 +131,7 @@ impl<'a> Formatter<'a> {
             if context.is_none() {
                 // Check if current char(s) matches a prefix.
                 // If so, update the new_context.
-                for w in Wrapper::values().into_iter() {
+                for w in Wrapper::values().iter() {
                     let mut wrapper_chars = w.get_prefix().chars();
                     let is_match = match w.get_prefix().len() {
                         1 => {
