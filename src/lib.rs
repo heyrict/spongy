@@ -109,6 +109,24 @@ impl<'a> Formatter<'a> {
             .join("")
     }
 
+    pub fn parse_with(&self, mapper: impl Fn(&Item) -> Option<String>) -> String {
+        self.into_elements()
+            .iter()
+            .map(|el: &Element| -> String {
+                match el {
+                    Element::Text(t) => t.to_owned(),
+                    Element::Wrapped(item) => mapper(item).unwrap_or(format!(
+                        "{}{}{}",
+                        item.wrapper.get_prefix(),
+                        item.text,
+                        item.wrapper.get_suffix()
+                    )),
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("")
+    }
+
     // TODO: This function is rather messed, it works, but is pretty hard to maintain.
     /// Convert text into a sequence of elements
     pub fn into_elements(&self) -> Vec<Element> {
@@ -378,27 +396,40 @@ mod tests {
     fn format_string() {
         let formatter = Formatter::new("{{greeting}}, {name}! by {hidden}")
             .add_middleware(Box::new(|item: &Item| -> Option<&str> {
-                if let Wrapper::Curly = item.wrapper {
-                    if let "name" = item.text.as_ref() {
-                        Some("world")
-                    } else {
-                        None
-                    }
-                } else {
-                    None
+                match item.wrapper {
+                    Wrapper::Curly => match item.text.as_ref() {
+                        "name" => Some("world"),
+                        _ => None,
+                    },
+                    _ => None,
                 }
             }))
-            .add_middleware(Box::new(|item| {
-                if let Wrapper::DoubleCurly = item.wrapper {
-                    if let "greeting" = item.text.as_ref() {
-                        Some("Hello")
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+            .add_middleware(Box::new(|item| match item.wrapper {
+                Wrapper::DoubleCurly => match item.text.as_ref() {
+                    "greeting" => Some("Hello"),
+                    _ => None,
+                },
+                _ => None,
             }));
+        assert_eq!(formatter.parse(), "Hello, world! by {hidden}");
+    }
+
+    #[test]
+    fn format_string_with() {
+        let formatter = Formatter::new("{{greeting}}, {name}! by {hidden}");
+        formatter.parse_with(|item: &Item| -> Option<String> {
+            match item.wrapper {
+                Wrapper::Curly => match item.text.as_ref() {
+                    "name" => Some("world".to_owned()),
+                    _ => None,
+                },
+                Wrapper::DoubleCurly => match item.text.as_ref() {
+                    "greeting" => Some("Hello".to_owned()),
+                    _ => None,
+                },
+                _ => None,
+            }
+        });
         assert_eq!(formatter.parse(), "Hello, world! by {hidden}");
     }
 }
