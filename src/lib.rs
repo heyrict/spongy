@@ -127,39 +127,50 @@ impl<'a> Formatter<'a> {
             .join("")
     }
 
-    // TODO: This function is rather messed, it works, but is pretty hard to maintain.
     /// Convert text into a sequence of elements
     pub fn into_elements(&self) -> Vec<Element> {
         if self.text.len() < 2 {
             return vec![Element::Text(self.text.to_owned())];
         }
-        let mut prev_char: Option<char> = None;
         let mut context: Option<Wrapper> = None;
         let mut new_context: Option<Wrapper> = None;
         let mut elements: Vec<Element> = vec![];
-        let mut current_texts = String::new();
 
-        for c in self.text.chars() {
-            if prev_char.is_none() {
-                prev_char = Some(c);
+        // Current window
+        //
+        // # Example
+        // ```
+        // {}, Hello, {world}
+        //   |        | |
+        //   |        | end_index
+        //   |        start_index
+        //   prev_index
+        // ```
+        let mut start_index = 0;
+        let mut prev_index = 0;
+
+        let num_chars = self.text.bytes().count();
+        let chars_list: Vec<u8> = self.text.bytes().collect();
+
+        for end_index in 0..num_chars + 1 {
+            // Require the size of window to be 2
+            if end_index - start_index < 2 {
                 continue;
             }
+
+            let window = chars_list.get(start_index..end_index).unwrap();
 
             // When it is not inside a wrapper currently
             if context.is_none() {
                 // Check if current char(s) matches a prefix.
                 // If so, update the new_context.
                 for w in Wrapper::values().iter() {
-                    let mut wrapper_chars = w.get_prefix().chars();
-                    let is_match = match w.get_prefix().len() {
-                        1 => {
-                            let first = wrapper_chars.next();
-                            first == prev_char
-                        }
+                    let mut wrapper_chars = w.get_prefix().bytes();
+                    let is_match = match wrapper_chars.len() {
+                        1 => wrapper_chars.next().unwrap() == window[0],
                         2 => {
-                            let first = wrapper_chars.next();
-                            let second = wrapper_chars.next();
-                            first == prev_char && second == Some(c)
+                            wrapper_chars.next().unwrap() == window[0]
+                                && wrapper_chars.next().unwrap() == window[1]
                         }
                         _ => false,
                     };
@@ -170,35 +181,42 @@ impl<'a> Formatter<'a> {
                     }
                 }
 
-                // If wrapped, create a text element
+                // If a new wrapper is created, create a text element
                 if let Some(wrapper) = &new_context {
-                    if current_texts.len() > 0 {
-                        elements.push(Element::Text(current_texts.clone()));
-                        current_texts = String::new();
+                    if start_index - prev_index > 0 {
+                        elements.push(Element::Text(
+                            self.text.get(prev_index..start_index).unwrap().to_owned(),
+                        ));
                     }
-                    // Update prev_char
-                    if wrapper.get_prefix().len() == 1 {
-                        prev_char = Some(c);
-                    } else {
-                        prev_char = None;
+                    // Update current window
+                    match wrapper.get_prefix().len() {
+                        1 => {
+                            start_index += 1;
+                            prev_index = start_index;
+                        }
+                        2 => {
+                            start_index += 2;
+                            prev_index = start_index;
+                        }
+                        _ => {
+                            panic!("Suffix length should be less than 3");
+                        }
                     }
-                // Update current_texts
-                } else if let Some(pc) = prev_char {
-                    current_texts.push(pc);
-                    prev_char = Some(c);
+                // Update current texts
+                } else {
+                    start_index += 1;
                 };
             // When it is inside a wrapper currently
             } else {
                 // Check if current char(s) matches the suffix.
                 let wrapper = context.clone().unwrap();
                 let suffix_len = wrapper.get_suffix().len();
-                let mut wrapper_chars = wrapper.get_suffix().chars();
+                let mut wrapper_chars = wrapper.get_suffix().bytes();
                 let is_match = match suffix_len {
-                    1 => wrapper_chars.next() == prev_char,
+                    1 => wrapper_chars.next().unwrap() == window[0],
                     2 => {
-                        let first = wrapper_chars.next();
-                        let second = wrapper_chars.next();
-                        first == prev_char && second == Some(c)
+                        wrapper_chars.next().unwrap() == window[0]
+                            && wrapper_chars.next().unwrap() == window[1]
                     }
                     _ => false,
                 };
@@ -208,52 +226,76 @@ impl<'a> Formatter<'a> {
                     new_context = None;
                     elements.push(Element::Wrapped(Item {
                         wrapper: wrapper.clone(),
-                        text: current_texts.to_owned(),
+                        text: self.text.get(prev_index..start_index).unwrap().to_owned(),
                     }));
 
                     // Update current_texts
-                    current_texts = String::new();
-                    if suffix_len == 1 {
-                        prev_char = Some(c);
-                    } else {
-                        prev_char = None;
+                    match suffix_len {
+                        1 => {
+                            prev_index = end_index - 1;
+                            start_index = end_index - 1;
+                        }
+                        2 => {
+                            prev_index = end_index;
+                            start_index = end_index;
+                        }
+                        _ => {
+                            panic!("Suffix length should be less than 3");
+                        }
                     }
-                } else if let Some(pc) = prev_char {
-                    current_texts.push(pc);
-                    prev_char = Some(c);
+                } else {
+                    start_index = end_index - 1;
                 };
             }
             context = new_context.clone();
         }
 
-        // Last char
-        if context.is_none() {
-            if current_texts.len() != 0 || prev_char.is_some() {
-                if let Some(pc) = prev_char {
-                    current_texts.push(pc);
+        match num_chars - start_index {
+            0 => {
+                if context.is_some() {
+                    elements.push(Element::Text(
+                        context.as_ref().unwrap().get_prefix().to_owned(),
+                    ))
                 }
-                elements.push(Element::Text(current_texts));
-            };
-        } else {
-            let first_char = context.clone().unwrap().get_suffix().chars().next();
-            let is_match = first_char == prev_char;
-
-            if is_match {
-                elements.push(Element::Wrapped(Item {
-                    wrapper: context.unwrap(),
-                    text: current_texts,
-                }));
-            } else {
-                let mut text = String::from(context.unwrap().get_prefix());
-                if let Some(pc) = prev_char {
-                    current_texts.push(pc);
-                }
-                text.push_str(&current_texts);
-                elements.push(Element::Text(text));
+                elements
             }
-        }
+            1 => {
+                // Last window, size of 1
+                let end_index = start_index + 1;
+                if context.is_none() {
+                    if prev_index < end_index {
+                        elements.push(Element::Text(
+                            self.text.get(prev_index..).unwrap().to_owned(),
+                        ));
+                    };
+                } else {
+                    let prefix = context.as_ref().unwrap().get_prefix();
+                    let suffix = context.as_ref().unwrap().get_suffix();
 
-        elements
+                    // If end_index matches the closing wrapper
+                    let is_match = match suffix.len() {
+                        1 => {
+                            &suffix.bytes().next().unwrap()
+                                == chars_list.get(end_index - 1).unwrap()
+                        }
+                        _ => false,
+                    };
+
+                    if is_match {
+                        elements.push(Element::Wrapped(Item {
+                            wrapper: context.unwrap(),
+                            text: self.text.get(prev_index..start_index).unwrap().to_owned(),
+                        }));
+                    } else {
+                        let mut s = String::from(prefix);
+                        s.push_str(self.text.get(prev_index..).unwrap());
+                        elements.push(Element::Text(s));
+                    }
+                };
+                elements
+            }
+            _ => panic!("Unreachable statement"),
+        }
     }
 }
 
@@ -417,7 +459,7 @@ mod tests {
     #[test]
     fn format_string_with() {
         let formatter = Formatter::new("{{greeting}}, {name}! by {hidden}");
-        formatter.parse_with(|item: &Item| -> Option<String> {
+        let parsed = formatter.parse_with(|item: &Item| -> Option<String> {
             match item.wrapper {
                 Wrapper::Curly => match item.text.as_ref() {
                     "name" => Some("world".to_owned()),
@@ -430,6 +472,6 @@ mod tests {
                 _ => None,
             }
         });
-        assert_eq!(formatter.parse(), "Hello, world! by {hidden}");
+        assert_eq!(parsed, "Hello, world! by {hidden}");
     }
 }
