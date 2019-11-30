@@ -1,5 +1,3 @@
-type Middleware = Box<dyn Fn(&Item) -> Option<&str>>;
-
 /// Wrappers over the text
 #[derive(Clone, Debug, PartialEq)]
 pub enum Wrapper {
@@ -12,22 +10,21 @@ pub enum Wrapper {
 
 /// Wrapped text
 #[derive(Debug, PartialEq)]
-pub struct Item {
+pub struct Item<'a> {
     pub wrapper: Wrapper,
-    pub text: String,
+    pub text: &'a str,
 }
 
 /// The formatter
 pub struct Formatter<'a> {
     text: &'a str,
-    middlewares: Vec<Middleware>,
 }
 
 /// Plain text or wrapped text
 #[derive(Debug, PartialEq)]
-pub enum Element {
-    Text(String),
-    Wrapped(Item),
+pub enum Element<'a> {
+    Text(&'a str),
+    Wrapped(Item<'a>),
 }
 
 impl Wrapper {
@@ -69,52 +66,16 @@ impl Wrapper {
 impl<'a> Formatter<'a> {
     /// Initialize a new formatter
     pub fn new(text: &'a str) -> Formatter<'a> {
-        Formatter {
-            text,
-            middlewares: vec![],
-        }
+        Formatter { text }
     }
 
-    /// Adds a middleware to the formatter
-    pub fn add_middleware(mut self, middleware: Middleware) -> Self {
-        self.middlewares.push(middleware);
-        self
-    }
-
-    /// Parse text with given middlewares
-    pub fn parse(&self) -> String {
-        self.into_elements()
-            .iter()
-            .map(|el: &Element| -> String {
-                match el {
-                    Element::Text(t) => t.to_owned(),
-                    Element::Wrapped(item) => {
-                        for middleware in &self.middlewares {
-                            let processed = middleware(&item);
-                            if processed.is_some() {
-                                return processed.unwrap().to_owned();
-                            }
-                        }
-
-                        format!(
-                            "{}{}{}",
-                            item.wrapper.get_prefix(),
-                            item.text,
-                            item.wrapper.get_suffix()
-                        )
-                    }
-                }
-            })
-            .collect::<Vec<String>>()
-            .join("")
-    }
-
+    /// Parse with a mapper function
     pub fn parse_with(&self, mapper: impl Fn(&Item) -> Option<String>) -> String {
         self.into_elements()
             .iter()
             .map(|el: &Element| -> String {
                 match el {
-                    Element::Text(t) => t.to_owned(),
+                    Element::Text(t) => t.to_owned().to_owned(),
                     Element::Wrapped(item) => mapper(item).unwrap_or(format!(
                         "{}{}{}",
                         item.wrapper.get_prefix(),
@@ -130,7 +91,7 @@ impl<'a> Formatter<'a> {
     /// Convert text into a sequence of elements
     pub fn into_elements(&self) -> Vec<Element> {
         if self.text.len() < 2 {
-            return vec![Element::Text(self.text.to_owned())];
+            return vec![Element::Text(self.text)];
         }
         let mut context: Option<Wrapper> = None;
         let mut new_context: Option<Wrapper> = None;
@@ -185,7 +146,7 @@ impl<'a> Formatter<'a> {
                 if let Some(wrapper) = &new_context {
                     if start_index - prev_index > 0 {
                         elements.push(Element::Text(
-                            self.text.get(prev_index..start_index).unwrap().to_owned(),
+                            self.text.get(prev_index..start_index).unwrap(),
                         ));
                     }
                     // Update current window
@@ -226,7 +187,7 @@ impl<'a> Formatter<'a> {
                     new_context = None;
                     elements.push(Element::Wrapped(Item {
                         wrapper: wrapper.clone(),
-                        text: self.text.get(prev_index..start_index).unwrap().to_owned(),
+                        text: self.text.get(prev_index..start_index).unwrap(),
                     }));
 
                     // Update current_texts
@@ -253,9 +214,7 @@ impl<'a> Formatter<'a> {
         match num_chars - start_index {
             0 => {
                 if context.is_some() {
-                    elements.push(Element::Text(
-                        context.as_ref().unwrap().get_prefix().to_owned(),
-                    ))
+                    elements.push(Element::Text(context.as_ref().unwrap().get_prefix()))
                 }
                 elements
             }
@@ -264,9 +223,7 @@ impl<'a> Formatter<'a> {
                 let end_index = start_index + 1;
                 if context.is_none() {
                     if prev_index < end_index {
-                        elements.push(Element::Text(
-                            self.text.get(prev_index..).unwrap().to_owned(),
-                        ));
+                        elements.push(Element::Text(self.text.get(prev_index..).unwrap()));
                     };
                 } else {
                     let prefix = context.as_ref().unwrap().get_prefix();
@@ -284,12 +241,12 @@ impl<'a> Formatter<'a> {
                     if is_match {
                         elements.push(Element::Wrapped(Item {
                             wrapper: context.unwrap(),
-                            text: self.text.get(prev_index..start_index).unwrap().to_owned(),
+                            text: self.text.get(prev_index..start_index).unwrap(),
                         }));
                     } else {
-                        let mut s = String::from(prefix);
-                        s.push_str(self.text.get(prev_index..).unwrap());
-                        elements.push(Element::Text(s));
+                        elements.push(Element::Text(
+                            self.text.get(prev_index - prefix.len()..).unwrap(),
+                        ));
                     }
                 };
                 elements
@@ -309,12 +266,12 @@ mod tests {
         assert_eq!(
             formatter.into_elements(),
             vec![
-                Element::Text("Hello, ".to_owned()),
+                Element::Text("Hello, "),
                 Element::Wrapped(Item {
                     wrapper: Wrapper::Curly,
-                    text: "name".to_owned()
+                    text: "name"
                 }),
-                Element::Text("!".to_owned())
+                Element::Text("!")
             ]
         );
     }
@@ -325,10 +282,10 @@ mod tests {
         assert_eq!(
             formatter.into_elements(),
             vec![
-                Element::Text("Hello, ".to_owned()),
+                Element::Text("Hello, "),
                 Element::Wrapped(Item {
                     wrapper: Wrapper::DoubleCurly,
-                    text: " user.name ".to_owned()
+                    text: " user.name "
                 })
             ]
         );
@@ -340,12 +297,12 @@ mod tests {
         assert_eq!(
             formatter.into_elements(),
             vec![
-                Element::Text("A ".to_owned()),
+                Element::Text("A "),
                 Element::Wrapped(Item {
                     wrapper: Wrapper::DollarCurly,
-                    text: "plus".to_owned(),
+                    text: "plus",
                 }),
-                Element::Text(" B".to_owned()),
+                Element::Text(" B"),
             ]
         );
     }
@@ -357,22 +314,19 @@ mod tests {
             formatter.into_elements(),
             vec![Element::Wrapped(Item {
                 wrapper: Wrapper::CurlyHash,
-                text: String::new(),
+                text: "",
             })]
         );
 
         let formatter = Formatter::new("{#}");
-        assert_eq!(
-            formatter.into_elements(),
-            vec![Element::Text("{#}".to_owned()),]
-        );
+        assert_eq!(formatter.into_elements(), vec![Element::Text("{#}"),]);
 
         let formatter = Formatter::new("{# comment #}");
         assert_eq!(
             formatter.into_elements(),
             vec![Element::Wrapped(Item {
                 wrapper: Wrapper::CurlyHash,
-                text: " comment ".to_owned(),
+                text: " comment ",
             })]
         );
     }
@@ -380,19 +334,16 @@ mod tests {
     #[test]
     fn parse_curly_percent() {
         let formatter = Formatter::new("{%}");
-        assert_eq!(
-            formatter.into_elements(),
-            vec![Element::Text("{%}".to_owned()),]
-        );
+        assert_eq!(formatter.into_elements(), vec![Element::Text("{%}"),]);
 
         let formatter = Formatter::new("Hello, {% name %}");
         assert_eq!(
             formatter.into_elements(),
             vec![
-                Element::Text("Hello, ".to_owned()),
+                Element::Text("Hello, "),
                 Element::Wrapped(Item {
                     wrapper: Wrapper::CurlyPercent,
-                    text: " name ".to_owned()
+                    text: " name "
                 })
             ]
         );
@@ -405,7 +356,7 @@ mod tests {
             formatter.into_elements(),
             vec![Element::Wrapped(Item {
                 wrapper: Wrapper::Curly,
-                text: "n".to_owned()
+                text: "n"
             })]
         );
 
@@ -414,7 +365,7 @@ mod tests {
             formatter.into_elements(),
             vec![Element::Wrapped(Item {
                 wrapper: Wrapper::Curly,
-                text: String::new(),
+                text: "",
             })]
         );
     }
@@ -422,38 +373,10 @@ mod tests {
     #[test]
     fn parse_broken() {
         let formatter = Formatter::new("${");
-        assert_eq!(
-            formatter.into_elements(),
-            vec![Element::Text("${".to_owned())]
-        );
+        assert_eq!(formatter.into_elements(), vec![Element::Text("${")]);
 
         let formatter = Formatter::new("${todo..");
-        assert_eq!(
-            formatter.into_elements(),
-            vec![Element::Text("${todo..".to_owned())]
-        );
-    }
-
-    #[test]
-    fn format_string() {
-        let formatter = Formatter::new("{{greeting}}, {name}! by {hidden}")
-            .add_middleware(Box::new(|item: &Item| -> Option<&str> {
-                match item.wrapper {
-                    Wrapper::Curly => match item.text.as_ref() {
-                        "name" => Some("world"),
-                        _ => None,
-                    },
-                    _ => None,
-                }
-            }))
-            .add_middleware(Box::new(|item| match item.wrapper {
-                Wrapper::DoubleCurly => match item.text.as_ref() {
-                    "greeting" => Some("Hello"),
-                    _ => None,
-                },
-                _ => None,
-            }));
-        assert_eq!(formatter.parse(), "Hello, world! by {hidden}");
+        assert_eq!(formatter.into_elements(), vec![Element::Text("${todo..")]);
     }
 
     #[test]
