@@ -1,6 +1,8 @@
 # Spongy
 A minimal runtime string formatter as a PoC for starship format configuration.
 
+**NOTE: The API is not stable and may change any time**
+
 ## Why Spongy?
 Most template engines or runtime formatters exists do not allow manipulation on the text inside the braces.
 Often they use a fixed format `{:2d}`, or a struct property `{user.name}`.
@@ -24,15 +26,14 @@ Fed with a string `Hello, {name}!`, the formatter should return
 
 ## Usage
 ```rust
-use spongy::Formatter;
+use spongy::{Formatter, Wrapper};
 
-let formatter =
-    Formatter::new("Hello, {name}!").add_middleware(Box::new(|item| match item.wrapper {
-        Wrapper::Curly => match item.text.as_ref() {
-            "name" => Some("world"),
-            _ => None,
-        },
+let formatted = Formatter::new("Hello, {name}!").parse_with(|item| match item.wrapper {
+    Wrapper::Curly => match item.text.as_ref() {
+        "name" => Some("world".to_owned()),
         _ => None,
-    }));
-assert_eq!(formatter.parse(), "Hello, world!");
+    },
+    _ => None,
+});
+assert_eq!(formatted, "Hello, world!");
 ```
