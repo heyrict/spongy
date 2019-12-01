@@ -28,9 +28,13 @@ Fed with a string `Hello, {name}!`, the formatter should return
 ```rust
 use spongy::{Formatter, Wrapper};
 
-let formatted = Formatter::new("Hello, {name}!").parse_with(|item| match item.wrapper {
+let formatted = parse_with("{{greeting}}, {name}!", |item| match item.wrapper {
     Wrapper::Curly => match item.text.as_ref() {
         "name" => Some("world".to_owned()),
+        _ => None,
+    },
+    Wrapper::DoubleCurly => match item.text.as_ref() {
+        "greeting" => Some("Hello".to_owned()),
         _ => None,
     },
     _ => None,
