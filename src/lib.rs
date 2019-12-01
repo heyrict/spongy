@@ -17,6 +17,30 @@ pub enum Wrapper {
     CurlyPercent,
 }
 
+impl Wrapper {
+    fn get_prefix(&self) -> &'static str {
+        match self {
+            Wrapper::TripleCurly => "{{{",
+            Wrapper::DoubleCurly => "{{",
+            Wrapper::Curly => "{",
+            Wrapper::DollarCurly => "${",
+            Wrapper::CurlyHash => "{#",
+            Wrapper::CurlyPercent => "{%",
+        }
+    }
+
+    fn get_suffix(&self) -> &'static str {
+        match self {
+            Wrapper::TripleCurly => "}}}",
+            Wrapper::DoubleCurly => "}}",
+            Wrapper::Curly => "}",
+            Wrapper::DollarCurly => "}",
+            Wrapper::CurlyHash => "#}",
+            Wrapper::CurlyPercent => "%}",
+        }
+    }
+}
+
 #[derive(PartialEq, Debug)]
 pub struct Item<'a> {
     pub wrapper: Wrapper,
@@ -70,6 +94,29 @@ pub fn parse<'e>(s: &'e str) -> Result<Vec<Element<'e>>, Error<Rule>> {
             _ => unreachable!(),
         })
         .collect();
+
+    Ok(result)
+}
+
+pub fn parse_with<M>(s: &str, mapper: M) -> Result<String, Error<Rule>>
+where
+    M: Fn(&Item) -> Option<String>,
+{
+    let result = parse(s)?
+        .iter()
+        .map(|el: &Element| -> String {
+            match el {
+                Element::Text(t) => t.to_owned().to_owned(),
+                Element::Wrapped(item) => mapper(item).unwrap_or(format!(
+                    "{}{}{}",
+                    item.wrapper.get_prefix(),
+                    item.text,
+                    item.wrapper.get_suffix()
+                )),
+            }
+        })
+        .collect::<Vec<String>>()
+        .join("");
 
     Ok(result)
 }
@@ -165,5 +212,26 @@ mod tests {
         assert!(parse("${").is_err());
         assert!(parse("{{todo..").is_err());
         assert!(parse("broken {%").is_err());
+    }
+
+    #[test]
+    fn format_string_with() {
+        let parsed = parse_with(
+            "{{greeting}}, {name}! by {hidden}",
+            |item: &Item| -> Option<String> {
+                match item.wrapper {
+                    Wrapper::Curly => match item.text.as_ref() {
+                        "name" => Some("world".to_owned()),
+                        _ => None,
+                    },
+                    Wrapper::DoubleCurly => match item.text.as_ref() {
+                        "greeting" => Some("Hello".to_owned()),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            },
+        );
+        assert_eq!(parsed.unwrap(), "Hello, world! by {hidden}");
     }
 }
