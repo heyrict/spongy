@@ -1,0 +1,24 @@
+expression = _{ SOI ~ value* ~ EOI }
+
+value = _{ text | wrapper }
+
+char = { !("${" | "{" | "\\") ~ ANY | "\\" ~ ANY }
+text_inner = @{ char+ }
+text = { text_inner }
+
+curly_wrapped = { !("{" | "}") ~ ANY }
+curly_inner = @{ curly_wrapped* }
+dollar_curly = { "${" ~ curly_inner ~ "}" }
+double_curly = { "{{" ~ curly_inner ~ "}}" }
+triple_curly = { "{{{" ~ curly_inner ~ "}}}" }
+curly = { "{" ~ curly_inner ~ "}" }
+
+curly_hash_wrapped = { !("{" | "}" | "#") ~ ANY }
+curly_hash_inner = @{ curly_hash_wrapped* }
+curly_hash = ${ "{#" ~ curly_hash_inner ~ "#}" }
+
+curly_percent_wrapped = { !("{" | "}" | "%") ~ ANY }
+curly_percent_inner = @{ curly_percent_wrapped* }
+curly_percent = { "{%" ~ curly_percent_inner ~ "%}" }
+
+wrapper = _{ triple_curly | dollar_curly | double_curly | curly_hash | curly_percent | curly }
